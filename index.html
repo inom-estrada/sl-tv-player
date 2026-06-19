@@ -32,11 +32,11 @@ html, body {
     z-index:9999;
 }
 
-/* Diseño del botón para forzar la interacción del usuario */
-#interact-overlay {
+/* Capa transparente que cubre la TV para capturar el clic de activación */
+#audio-unmute-overlay {
     position:absolute;
     top:0; left:0; right:0; bottom:0;
-    background:rgba(0,0,0,0.5);
+    background:rgba(0,0,0,0.75);
     display:flex;
     justify-content:center;
     align-items:center;
@@ -44,15 +44,15 @@ html, body {
     cursor:pointer;
 }
 
-#interact-btn {
-    background:rgba(255, 0, 0, 0.8);
+#unmute-text {
     color:white;
-    padding:15px 30px;
-    font-size:24px;
+    font-size:20px;
     font-family:Arial, sans-serif;
     font-weight:bold;
-    border-radius:10px;
     border:2px solid white;
+    padding:12px 24px;
+    border-radius:8px;
+    background:rgba(255,255,255,0.1);
     text-align:center;
 }
 </style>
@@ -65,8 +65,8 @@ html, body {
 
 <div id="status">Iniciando...</div>
 
-<div id="interact-overlay">
-    <div id="interact-btn">HAZ CLIC AQUÍ PARA ESCUCHAR</div>
+<div id="audio-unmute-overlay">
+    <div id="unmute-text">🔊 TOCAR PANTALLA PARA AUDIO</div>
 </div>
 
 <video
@@ -82,7 +82,7 @@ html, body {
 
 const statusBox = document.getElementById("status");
 const video = document.getElementById("video");
-const interactOverlay = document.getElementById("interact-overlay");
+const unmuteOverlay = document.getElementById("audio-unmute-overlay");
 
 function status(msg)
 {
@@ -90,48 +90,39 @@ function status(msg)
     statusBox.innerHTML = msg;
 }
 
-// Captura cualquier clic en la pantalla para liberar el audio
-interactOverlay.addEventListener("click", function() {
+// Al hacer un clic en cualquier parte de la TV, se activa el sonido
+unmuteOverlay.addEventListener("click", function() {
     video.muted = false;
     video.volume = 1.0;
     
     if (video.paused) {
-        video.play();
+        video.play().catch(e => console.log(e));
     }
     
-    // Ocultar el botón una vez que se hizo clic
-    interactOverlay.style.display = "none";
-    status("Audio activado manualmente");
+    unmuteOverlay.style.display = "none";
+    status("Audio activado");
 });
 
-/*
-   Recupera TODO lo que viene después de ?url=
-   sin que los & rompan la URL.
-*/
+// Volvemos a tu lógica original de lectura de parámetros
+const params = new URLSearchParams(window.location.search);
+let stream = params.get("url");
 
-let href = window.location.href;
-let pos = href.indexOf("?url=");
-let stream = "";
-
-if(pos >= 0)
-{
-    stream = href.substring(pos + 5);
-}
-
-if(stream === "")
+if (!stream)
 {
     status("No se recibió URL");
-    interactOverlay.style.display = "none";
+    unmuteOverlay.style.display = "none";
 }
 else
 {
+    stream = decodeURIComponent(stream);
+
     status("Conectando...");
 
     let lower = stream.toLowerCase();
 
-    if(lower.indexOf(".m3u8") > -1 || lower.indexOf(".m3u") > -1)
+    if (lower.indexOf(".m3u8") > -1 || lower.indexOf(".m3u") > -1)
     {
-        if(Hls.isSupported())
+        if (Hls.isSupported())
         {
             let hls = new Hls({
                 enableWorker:true,
@@ -141,19 +132,24 @@ else
             hls.loadSource(stream);
             hls.attachMedia(video);
 
-            hls.on(Hls.Events.MANIFEST_PARSED,function()
+            hls.on(Hls.Events.MANIFEST_PARSED, function()
             {
-                status("Reproduciendo HLS (Silenciado por seguridad)");
+                status("Reproduciendo HLS (Silenciado)");
                 video.play().catch(e => console.log(e));
             });
 
-            hls.on(Hls.Events.ERROR,function(event,data)
+            hls.on(Hls.Events.ERROR, function(event, data)
             {
                 console.log(data);
 
-                if(data.fatal)
+                if (data.fatal)
                 {
-                    status("Error: " + data.type + " | " + data.details);
+                    status(
+                        "Error: " +
+                        data.type +
+                        " | " +
+                        data.details
+                    );
                 }
             });
         }
@@ -167,16 +163,22 @@ else
     {
         video.src = stream;
 
-        video.addEventListener("loadedmetadata", function()
-        {
-            status("Reproduciendo (Silenciado)");
-            video.play().catch(e => console.log(e));
-        });
+        video.addEventListener(
+            "loadedmetadata",
+            function()
+            {
+                status("Reproduciendo");
+                video.play().catch(e => console.log(e));
+            }
+        );
 
-        video.addEventListener("error", function()
-        {
-            status("Formato no soportado");
-        });
+        video.addEventListener(
+            "error",
+            function()
+            {
+                status("Formato no soportado");
+            }
+        );
     }
 }
 
