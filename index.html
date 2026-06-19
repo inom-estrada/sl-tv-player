@@ -31,6 +31,30 @@ html, body {
     font-size:14px;
     z-index:9999;
 }
+
+/* Diseño del botón para forzar la interacción del usuario */
+#interact-overlay {
+    position:absolute;
+    top:0; left:0; right:0; bottom:0;
+    background:rgba(0,0,0,0.5);
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    z-index:10000;
+    cursor:pointer;
+}
+
+#interact-btn {
+    background:rgba(255, 0, 0, 0.8);
+    color:white;
+    padding:15px 30px;
+    font-size:24px;
+    font-family:Arial, sans-serif;
+    font-weight:bold;
+    border-radius:10px;
+    border:2px solid white;
+    text-align:center;
+}
 </style>
 
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
@@ -40,6 +64,10 @@ html, body {
 <body>
 
 <div id="status">Iniciando...</div>
+
+<div id="interact-overlay">
+    <div id="interact-btn">HAZ CLIC AQUÍ PARA ESCUCHAR</div>
+</div>
 
 <video
     id="video"
@@ -54,12 +82,27 @@ html, body {
 
 const statusBox = document.getElementById("status");
 const video = document.getElementById("video");
+const interactOverlay = document.getElementById("interact-overlay");
 
 function status(msg)
 {
     console.log(msg);
     statusBox.innerHTML = msg;
 }
+
+// Captura cualquier clic en la pantalla para liberar el audio
+interactOverlay.addEventListener("click", function() {
+    video.muted = false;
+    video.volume = 1.0;
+    
+    if (video.paused) {
+        video.play();
+    }
+    
+    // Ocultar el botón una vez que se hizo clic
+    interactOverlay.style.display = "none";
+    status("Audio activado manualmente");
+});
 
 /*
    Recupera TODO lo que viene después de ?url=
@@ -78,6 +121,7 @@ if(pos >= 0)
 if(stream === "")
 {
     status("No se recibió URL");
+    interactOverlay.style.display = "none";
 }
 else
 {
@@ -99,17 +143,8 @@ else
 
             hls.on(Hls.Events.MANIFEST_PARSED,function()
             {
-                status("Reproduciendo HLS");
-                
-                // Forzamos la reproducción y quitamos el mute fraccion de segundo después
-                video.play().then(() => {
-                    setTimeout(function() {
-                        video.muted = false;
-                        video.volume = 1.0;
-                    }, 300);
-                }).catch(function(error) {
-                    console.log("Error al iniciar autoplay:", error);
-                });
+                status("Reproduciendo HLS (Silenciado por seguridad)");
+                video.play().catch(e => console.log(e));
             });
 
             hls.on(Hls.Events.ERROR,function(event,data)
@@ -118,52 +153,30 @@ else
 
                 if(data.fatal)
                 {
-                    status(
-                        "Error: " +
-                        data.type +
-                        " | " +
-                        data.details
-                    );
+                    status("Error: " + data.type + " | " + data.details);
                 }
             });
         }
         else
         {
             video.src = stream;
-            
-            video.play().then(() => {
-                setTimeout(function() {
-                    video.muted = false;
-                    video.volume = 1.0;
-                }, 300);
-            }).catch(e => console.log(e));
+            video.play().catch(e => console.log(e));
         }
     }
     else
     {
         video.src = stream;
 
-        video.addEventListener(
-            "loadedmetadata",
-            function()
-            {
-                status("Reproduciendo");
-                video.play().then(() => {
-                    setTimeout(function() {
-                        video.muted = false;
-                        video.volume = 1.0;
-                    }, 300);
-                }).catch(e => console.log(e));
-            }
-        );
+        video.addEventListener("loadedmetadata", function()
+        {
+            status("Reproduciendo (Silenciado)");
+            video.play().catch(e => console.log(e));
+        });
 
-        video.addEventListener(
-            "error",
-            function()
-            {
-                status("Formato no soportado");
-            }
-        );
+        video.addEventListener("error", function()
+        {
+            status("Formato no soportado");
+        });
     }
 }
 
