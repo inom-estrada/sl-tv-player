@@ -45,7 +45,6 @@ html, body {
     id="video"
     controls
     autoplay
-    muted
     playsinline
     webkit-playsinline>
 </video>
@@ -54,6 +53,18 @@ html, body {
 
 const statusBox = document.getElementById("status");
 const video = document.getElementById("video");
+
+video.muted = false;
+video.defaultMuted = false;
+video.volume = 1.0;
+
+video.addEventListener("volumechange", function()
+{
+    status(
+        "Muted=" + video.muted +
+        " Vol=" + video.volume
+    );
+});
 
 function status(msg)
 {
@@ -91,6 +102,10 @@ else
             hls.on(Hls.Events.MANIFEST_PARSED, function()
             {
                 status("Reproduciendo HLS");
+
+                video.muted = false;
+                video.volume = 1.0;
+
                 video.play();
             });
 
