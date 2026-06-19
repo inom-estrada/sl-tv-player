@@ -109,12 +109,15 @@ else
             {
                 console.log(data);
 
-                status(
-                    "Error: " +
-                    data.type +
-                    " | " +
-                    data.details
-                );
+                if(data.fatal)
+                {
+                    status(
+                        "Error: " +
+                        data.type +
+                        " | " +
+                        data.details
+                    );
+                }
             });
         }
         else
@@ -145,11 +148,6 @@ else
         );
     }
 }
-
-</script>
-
-</body>
-</html>
 
 </script>
 
