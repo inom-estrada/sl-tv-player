@@ -1,159 +1,299 @@
 <!DOCTYPE html>
+
 <html>
+
 <head>
+
 <meta charset="utf-8">
+
 <title>SL TV Player</title>
 
+
+
 <style>
+
 html, body {
+
     margin:0;
+
     padding:0;
+
     width:100%;
+
     height:100%;
+
     background:#000;
+
     overflow:hidden;
+
 }
+
+
 
 #video {
+
     width:100%;
+
     height:100%;
+
     background:#000;
+
 }
 
+
+
 #status {
+
     position:absolute;
+
     top:10px;
+
     left:10px;
+
     color:white;
+
     background:rgba(0,0,0,0.6);
+
     padding:5px;
+
     font-family:Arial;
+
     font-size:14px;
+
     z-index:9999;
+
 }
+
 </style>
+
+
 
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 
+
+
 </head>
+
+
 
 <body>
 
+
+
 <div id="status">Iniciando...</div>
 
+
+
 <video
+
     id="video"
+
     controls
+
     autoplay
+
+    muted
+
     playsinline
+
     webkit-playsinline>
+
 </video>
+
+
 
 <script>
 
+
+
 const statusBox = document.getElementById("status");
+
 const video = document.getElementById("video");
 
-video.muted = false;
-video.defaultMuted = false;
-video.volume = 1.0;
 
-video.addEventListener("volumechange", function()
-{
-    status(
-        "Muted=" + video.muted +
-        " Vol=" + video.volume
-    );
-});
 
 function status(msg)
+
 {
+
     console.log(msg);
+
     statusBox.innerHTML = msg;
+
 }
+
+
 
 const params = new URLSearchParams(window.location.search);
+
 let stream = params.get("url");
 
+
+
 if (!stream)
+
 {
+
     status("No se recibió URL");
+
 }
+
 else
+
 {
+
     stream = decodeURIComponent(stream);
+
+
 
     status("Conectando...");
 
+
+
     let lower = stream.toLowerCase();
 
+
+
     if (lower.indexOf(".m3u8") > -1 || lower.indexOf(".m3u") > -1)
+
     {
+
         if (Hls.isSupported())
+
         {
-            let hls = new Hls({
+
+            status("Cargando HLS...");
+
+
+
+            const hls = new Hls({
+
                 enableWorker:true,
+
                 lowLatencyMode:true
+
             });
+
+
 
             hls.loadSource(stream);
+
             hls.attachMedia(video);
 
+
+
             hls.on(Hls.Events.MANIFEST_PARSED, function()
+
             {
+
                 status("Reproduciendo HLS");
 
-                video.muted = false;
-                video.volume = 1.0;
-
                 video.play();
+
             });
 
-            hls.on(Hls.Events.ERROR, function(event, data)
+
+
+            hls.on(Hls.Events.ERROR, function(event,data)
+
             {
+
                 console.log(data);
 
-                if (data.fatal)
-                {
-                    status(
-                        "Error: " +
-                        data.type +
-                        " | " +
-                        data.details
-                    );
-                }
+                status("Error HLS");
+
             });
+
         }
+
         else
+
         {
+
             video.src = stream;
+
             video.play();
+
         }
+
     }
-    else
+
+    else if (lower.indexOf(".ts") > -1)
+
     {
+
+        status("Intentando reproducir TS...");
+
+
+
         video.src = stream;
 
-        video.addEventListener(
-            "loadedmetadata",
-            function()
-            {
-                status("Reproduciendo");
-                video.play();
-            }
-        );
 
-        video.addEventListener(
-            "error",
-            function()
-            {
-                status("Formato no soportado");
-            }
-        );
+
+        video.addEventListener("loadedmetadata", function()
+
+        {
+
+            status("TS cargado");
+
+            video.play();
+
+        });
+
+
+
+        video.addEventListener("error", function()
+
+        {
+
+            status("TS no soportado o bloqueado");
+
+        });
+
     }
+
+    else
+
+    {
+
+        status("Intentando reproducir video...");
+
+
+
+        video.src = stream;
+
+
+
+        video.addEventListener("loadedmetadata", function()
+
+        {
+
+            status("Reproduciendo");
+
+            video.play();
+
+        });
+
+
+
+        video.addEventListener("error", function()
+
+        {
+
+            status("Formato no soportado");
+
+        });
+
+    }
+
 }
+
+
 
 </script>
 
+
+
 </body>
+
 </html>
