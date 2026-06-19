@@ -61,35 +61,24 @@ function status(msg)
     statusBox.innerHTML = msg;
 }
 
-/*
-   Recupera TODO lo que viene después de ?url=
-   sin que los & rompan la URL.
-*/
+const params = new URLSearchParams(window.location.search);
+let stream = params.get("url");
 
-let href = window.location.href;
-
-let pos = href.indexOf("?url=");
-
-let stream = "";
-
-if(pos >= 0)
-{
-    stream = href.substring(pos + 5);
-}
-
-if(stream === "")
+if (!stream)
 {
     status("No se recibió URL");
 }
 else
 {
+    stream = decodeURIComponent(stream);
+
     status("Conectando...");
 
     let lower = stream.toLowerCase();
 
-    if(lower.indexOf(".m3u8") > -1 || lower.indexOf(".m3u") > -1)
+    if (lower.indexOf(".m3u8") > -1 || lower.indexOf(".m3u") > -1)
     {
-        if(Hls.isSupported())
+        if (Hls.isSupported())
         {
             let hls = new Hls({
                 enableWorker:true,
@@ -99,17 +88,17 @@ else
             hls.loadSource(stream);
             hls.attachMedia(video);
 
-            hls.on(Hls.Events.MANIFEST_PARSED,function()
+            hls.on(Hls.Events.MANIFEST_PARSED, function()
             {
                 status("Reproduciendo HLS");
                 video.play();
             });
 
-            hls.on(Hls.Events.ERROR,function(event,data)
+            hls.on(Hls.Events.ERROR, function(event, data)
             {
                 console.log(data);
 
-                if(data.fatal)
+                if (data.fatal)
                 {
                     status(
                         "Error: " +
