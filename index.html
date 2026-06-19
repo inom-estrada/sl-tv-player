@@ -96,10 +96,16 @@ else
                 video.play();
             });
 
-            hls.on(Hls.Events.ERROR, function(event,data)
+            hls.on(Hls.Events.ERROR, function(event, data)
             {
                 console.log(data);
-                status("Error HLS");
+
+                status(
+                    "Error: " +
+                    data.type +
+                    " | " +
+                    data.details
+                );
             });
         }
         else
