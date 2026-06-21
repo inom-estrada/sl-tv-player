@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>SL TV Player</title>
+<title>SL TV Player PRO</title>
 
 <style>
 html, body {
@@ -26,160 +26,135 @@ html, body {
     left:10px;
     color:white;
     background:rgba(0,0,0,0.6);
-    padding:5px;
+    padding:6px 10px;
     font-family:Arial;
-    font-size:14px;
+    font-size:13px;
     z-index:9999;
 }
 
-/* Capa transparente que cubre la TV para capturar el clic de activación */
-#audio-unmute-overlay {
+#overlay {
     position:absolute;
-    top:0; left:0; right:0; bottom:0;
-    background:rgba(0,0,0,0.75);
+    top:0;left:0;right:0;bottom:0;
+    background:rgba(0,0,0,0.7);
     display:flex;
     justify-content:center;
     align-items:center;
     z-index:10000;
     cursor:pointer;
-}
-
-#unmute-text {
     color:white;
-    font-size:20px;
-    font-family:Arial, sans-serif;
-    font-weight:bold;
-    border:2px solid white;
-    padding:12px 24px;
-    border-radius:8px;
-    background:rgba(255,255,255,0.1);
-    text-align:center;
+    font-size:18px;
+    font-family:Arial;
 }
 </style>
 
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<script src="https://cdn.dashjs.org/latest/dash.all.min.js"></script>
 
 </head>
 
 <body>
 
 <div id="status">Iniciando...</div>
+<div id="overlay">🔊 CLICK PARA ACTIVAR AUDIO</div>
 
-<div id="audio-unmute-overlay">
-    <div id="unmute-text">🔊 TOCAR PANTALLA PARA AUDIO</div>
-</div>
-
-<video
-    id="video"
-    controls
-    autoplay
-    muted
-    playsinline
-    webkit-playsinline>
-</video>
+<video id="video" autoplay muted controls playsinline></video>
 
 <script>
 
-const statusBox = document.getElementById("status");
 const video = document.getElementById("video");
-const unmuteOverlay = document.getElementById("audio-unmute-overlay");
+const statusBox = document.getElementById("status");
+const overlay = document.getElementById("overlay");
 
-function status(msg)
-{
-    console.log(msg);
-    statusBox.innerHTML = msg;
+function setStatus(t){
+    console.log(t);
+    statusBox.innerHTML = t;
 }
 
-// Al hacer un clic en cualquier parte de la TV, se activa el sonido
-unmuteOverlay.addEventListener("click", function() {
+overlay.addEventListener("click", ()=>{
     video.muted = false;
     video.volume = 1.0;
-    
-    if (video.paused) {
-        video.play().catch(e => console.log(e));
-    }
-    
-    unmuteOverlay.style.display = "none";
-    status("Audio activado");
+    video.play().catch(()=>{});
+    overlay.style.display = "none";
 });
 
-// Volvemos a tu lógica original de lectura de parámetros
+// detectar stream
 const params = new URLSearchParams(window.location.search);
 let stream = params.get("url");
 
-if (!stream)
-{
-    status("No se recibió URL");
-    unmuteOverlay.style.display = "none";
+if(!stream){
+    setStatus("No URL");
+    overlay.style.display="none";
+} else {
+
+stream = decodeURIComponent(stream);
+let lower = stream.toLowerCase();
+
+setStatus("Cargando stream...");
+
+// --------------------
+// MP4 directo
+// --------------------
+if(lower.endsWith(".mp4")){
+    video.src = stream;
+    video.play().catch(()=>{});
+    setStatus("MP4 reproduciendo");
 }
-else
-{
-    stream = decodeURIComponent(stream);
 
-    status("Conectando...");
+// --------------------
+// HLS (.m3u8)
+// --------------------
+else if(lower.includes(".m3u8")){
+    if(Hls.isSupported()){
+        const hls = new Hls({
+            enableWorker:true,
+            lowLatencyMode:true
+        });
 
-    let lower = stream.toLowerCase();
+        hls.loadSource(stream);
+        hls.attachMedia(video);
 
-    if (lower.indexOf(".m3u8") > -1 || lower.indexOf(".m3u") > -1)
-    {
-        if (Hls.isSupported())
-        {
-            let hls = new Hls({
-                enableWorker:true,
-                lowLatencyMode:true
-            });
+        hls.on(Hls.Events.MANIFEST_PARSED, ()=>{
+            video.play().catch(()=>{});
+            setStatus("HLS reproduciendo");
+        });
 
-            hls.loadSource(stream);
-            hls.attachMedia(video);
+        hls.on(Hls.Events.ERROR, (e,d)=>{
+            if(d.fatal){
+                setStatus("Error HLS: " + d.type);
+            }
+        });
 
-            hls.on(Hls.Events.MANIFEST_PARSED, function()
-            {
-                status("Reproduciendo HLS (Silenciado)");
-                video.play().catch(e => console.log(e));
-            });
-
-            hls.on(Hls.Events.ERROR, function(event, data)
-            {
-                console.log(data);
-
-                if (data.fatal)
-                {
-                    status(
-                        "Error: " +
-                        data.type +
-                        " | " +
-                        data.details
-                    );
-                }
-            });
-        }
-        else
-        {
-            video.src = stream;
-            video.play().catch(e => console.log(e));
-        }
-    }
-    else
-    {
+    } else {
         video.src = stream;
-
-        video.addEventListener(
-            "loadedmetadata",
-            function()
-            {
-                status("Reproduciendo");
-                video.play().catch(e => console.log(e));
-            }
-        );
-
-        video.addEventListener(
-            "error",
-            function()
-            {
-                status("Formato no soportado");
-            }
-        );
+        setStatus("HLS fallback nativo");
     }
+}
+
+// --------------------
+// DASH (.mpd)
+// --------------------
+else if(lower.includes(".mpd")){
+    const player = dashjs.MediaPlayer().create();
+    player.initialize(video, stream, true);
+    setStatus("DASH reproduciendo");
+}
+
+// --------------------
+// fallback
+// --------------------
+else {
+    video.src = stream;
+
+    video.onloadedmetadata = ()=>{
+        setStatus("Reproduciendo stream");
+        video.play().catch(()=>{});
+    };
+
+    video.onerror = ()=>{
+        setStatus("No se pudo reproducir");
+    };
+}
+
 }
 
 </script>
