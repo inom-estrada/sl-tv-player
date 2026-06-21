@@ -70,11 +70,30 @@ function setStatus(t){
     statusBox.innerHTML = t;
 }
 
-overlay.addEventListener("click", ()=>{
-    video.muted = false;
-    video.volume = 1.0;
-    video.play().catch(()=>{});
-    overlay.style.display = "none";
+// ✔ UNLOCK REAL DE AUDIO (Truco CEF para Firestorm)
+overlay.addEventListener("click", async () => {
+    try {
+        video.muted = false;
+        video.volume = 1.0;
+
+        // 🔑 paso 1: play
+        await video.play();
+
+        // 🔑 paso 2: truco CEF (re-armar pipeline de audio)
+        video.pause();
+        video.currentTime = 0;
+        await video.play();
+
+        // 🔑 paso 3: asegurar desbloqueo
+        video.muted = false;
+
+        overlay.style.display = "none";
+        setStatus("Audio ACTIVADO");
+
+    } catch (e) {
+        console.log(e);
+        setStatus("Error audio unlock");
+    }
 });
 
 // ✔ AUTO-RECOVERY (si falla stream)
@@ -84,11 +103,6 @@ video.addEventListener("error", ()=>{
         video.load();
         video.play().catch(()=>{});
     }, 2000);
-});
-
-// ✔ FORZAR AUDIO EN CARGA
-video.addEventListener("canplay", ()=>{
-    video.muted = false;
 });
 
 // ✔ KEEP ALIVE (SL evita freezes)
