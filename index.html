@@ -77,6 +77,27 @@ overlay.addEventListener("click", ()=>{
     overlay.style.display = "none";
 });
 
+// ✔ AUTO-RECOVERY (si falla stream)
+video.addEventListener("error", ()=>{
+    setStatus("Reintentando...");
+    setTimeout(()=>{
+        video.load();
+        video.play().catch(()=>{});
+    }, 2000);
+});
+
+// ✔ FORZAR AUDIO EN CARGA
+video.addEventListener("canplay", ()=>{
+    video.muted = false;
+});
+
+// ✔ KEEP ALIVE (SL evita freezes)
+setInterval(()=>{
+    if(video.paused){
+        video.play().catch(()=>{});
+    }
+}, 5000);
+
 // detectar stream
 const params = new URLSearchParams(window.location.search);
 let stream = params.get("url");
@@ -86,75 +107,70 @@ if(!stream){
     overlay.style.display="none";
 } else {
 
-stream = decodeURIComponent(stream);
-let lower = stream.toLowerCase();
+    stream = decodeURIComponent(stream);
+    let lower = stream.toLowerCase();
 
-setStatus("Cargando stream...");
+    setStatus("Cargando stream...");
 
-// --------------------
-// MP4 directo
-// --------------------
-if(lower.endsWith(".mp4")){
-    video.src = stream;
-    video.play().catch(()=>{});
-    setStatus("MP4 reproduciendo");
-}
-
-// --------------------
-// HLS (.m3u8)
-// --------------------
-else if(lower.includes(".m3u8")){
-    if(Hls.isSupported()){
-        const hls = new Hls({
-            enableWorker:true,
-            lowLatencyMode:true
-        });
-
-        hls.loadSource(stream);
-        hls.attachMedia(video);
-
-        hls.on(Hls.Events.MANIFEST_PARSED, ()=>{
-            video.play().catch(()=>{});
-            setStatus("HLS reproduciendo");
-        });
-
-        hls.on(Hls.Events.ERROR, (e,d)=>{
-            if(d.fatal){
-                setStatus("Error HLS: " + d.type);
-            }
-        });
-
-    } else {
+    // --------------------
+    // MP4 directo
+    // --------------------
+    if(lower.endsWith(".mp4")){
         video.src = stream;
-        setStatus("HLS fallback nativo");
-    }
-}
-
-// --------------------
-// DASH (.mpd)
-// --------------------
-else if(lower.includes(".mpd")){
-    const player = dashjs.MediaPlayer().create();
-    player.initialize(video, stream, true);
-    setStatus("DASH reproduciendo");
-}
-
-// --------------------
-// fallback
-// --------------------
-else {
-    video.src = stream;
-
-    video.onloadedmetadata = ()=>{
-        setStatus("Reproduciendo stream");
         video.play().catch(()=>{});
-    };
+        setStatus("MP4 reproduciendo");
+    }
 
-    video.onerror = ()=>{
-        setStatus("No se pudo reproducir");
-    };
-}
+    // --------------------
+    // HLS (.m3u8)
+    // --------------------
+    else if(lower.includes(".m3u8")){
+        if(Hls.isSupported()){
+            const hls = new Hls({
+                enableWorker:true,
+                lowLatencyMode:true
+            });
 
+            hls.loadSource(stream);
+            hls.attachMedia(video);
+
+            hls.on(Hls.Events.MANIFEST_PARSED, ()=>{
+                video.play().catch(()=>{});
+                setStatus("HLS reproduciendo");
+            });
+
+            hls.on(Hls.Events.ERROR, (e,d)=>{
+                if(d.fatal){
+                    setStatus("Error HLS: " + d.type);
+                }
+            });
+
+        } else {
+            video.src = stream;
+            setStatus("HLS fallback nativo");
+        }
+    }
+
+    // --------------------
+    // DASH (.mpd)
+    // --------------------
+    else if(lower.includes(".mpd")){
+        const player = dashjs.MediaPlayer().create();
+        player.initialize(video, stream, true);
+        setStatus("DASH reproduciendo");
+    }
+
+    // --------------------
+    // fallback
+    // --------------------
+    else {
+        video.src = stream;
+
+        video.onloadedmetadata = ()=>{
+            setStatus("Reproduciendo stream");
+            video.play().catch(()=>{});
+        };
+    }
 }
 
 </script>
