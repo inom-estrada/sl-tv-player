@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>SL TV Player PRO</title>
+<title>SL TV Player</title>
 
 <style>
 html, body {
@@ -26,121 +26,105 @@ html, body {
     left:10px;
     color:white;
     background:rgba(0,0,0,0.6);
-    padding:6px 10px;
+    padding:5px;
     font-family:Arial;
-    font-size:13px;
+    font-size:14px;
     z-index:9999;
 }
 
-#overlay {
+/* Capa transparente que cubre la TV para capturar el clic de activación */
+#audio-unmute-overlay {
     position:absolute;
-    top:0;left:0;right:0;bottom:0;
-    background:rgba(0,0,0,0.7);
+    top:0; left:0; right:0; bottom:0;
+    background:rgba(0,0,0,0.75);
     display:flex;
     justify-content:center;
     align-items:center;
     z-index:10000;
     cursor:pointer;
+}
+
+#unmute-text {
     color:white;
-    font-size:18px;
-    font-family:Arial;
+    font-size:20px;
+    font-family:Arial, sans-serif;
+    font-weight:bold;
+    border:2px solid white;
+    padding:12px 24px;
+    border-radius:8px;
+    background:rgba(255,255,255,0.1);
+    text-align:center;
 }
 </style>
 
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-<script src="https://cdn.dashjs.org/latest/dash.all.min.js"></script>
 
 </head>
 
 <body>
 
 <div id="status">Iniciando...</div>
-<div id="overlay">🔊 CLICK PARA ACTIVAR AUDIO</div>
 
-<video id="video" autoplay muted controls playsinline></video>
+<div id="audio-unmute-overlay">
+    <div id="unmute-text">🔊 TOCAR PANTALLA PARA AUDIO</div>
+</div>
+
+<video
+    id="video"
+    controls
+    autoplay
+    muted
+    playsinline
+    webkit-playsinline>
+</video>
 
 <script>
 
-const video = document.getElementById("video");
 const statusBox = document.getElementById("status");
-const overlay = document.getElementById("overlay");
+const video = document.getElementById("video");
+const unmuteOverlay = document.getElementById("audio-unmute-overlay");
 
-function setStatus(t){
-    console.log(t);
-    statusBox.innerHTML = t;
+function status(msg)
+{
+    console.log(msg);
+    statusBox.innerHTML = msg;
 }
 
-// ✔ UNLOCK REAL DE AUDIO (Truco CEF para Firestorm)
-overlay.addEventListener("click", async () => {
-    try {
-        video.muted = false;
-        video.volume = 1.0;
-
-        // 🔑 paso 1: play
-        await video.play();
-
-        // 🔑 paso 2: truco CEF (re-armar pipeline de audio)
-        video.pause();
-        video.currentTime = 0;
-        await video.play();
-
-        // 🔑 paso 3: asegurar desbloqueo
-        video.muted = false;
-
-        overlay.style.display = "none";
-        setStatus("Audio ACTIVADO");
-
-    } catch (e) {
-        console.log(e);
-        setStatus("Error audio unlock");
+// Al hacer un clic en cualquier parte de la TV, se activa el sonido
+unmuteOverlay.addEventListener("click", function() {
+    video.muted = false;
+    video.volume = 1.0;
+    
+    if (video.paused) {
+        video.play().catch(e => console.log(e));
     }
+    
+    unmuteOverlay.style.display = "none";
+    status("Audio activado");
 });
 
-// ✔ AUTO-RECOVERY (si falla stream)
-video.addEventListener("error", ()=>{
-    setStatus("Reintentando...");
-    setTimeout(()=>{
-        video.load();
-        video.play().catch(()=>{});
-    }, 2000);
-});
-
-// ✔ KEEP ALIVE (SL evita freezes)
-setInterval(()=>{
-    if(video.paused){
-        video.play().catch(()=>{});
-    }
-}, 5000);
-
-// detectar stream
+// Volvemos a tu lógica original de lectura de parámetros
 const params = new URLSearchParams(window.location.search);
 let stream = params.get("url");
 
-if(!stream){
-    setStatus("No URL");
-    overlay.style.display="none";
-} else {
-
+if (!stream)
+{
+    status("No se recibió URL");
+    unmuteOverlay.style.display = "none";
+}
+else
+{
     stream = decodeURIComponent(stream);
+
+    status("Conectando...");
+
     let lower = stream.toLowerCase();
 
-    setStatus("Cargando stream...");
-
-    // --------------------
-    // MP4 directo
-    // --------------------
-    if(lower.endsWith(".mp4")){
-        video.src = stream;
-        video.play().catch(()=>{});
-        setStatus("MP4 reproduciendo");
-    }
-
-    // --------------------
-    // HLS (.m3u8)
-    // --------------------
-    else if(lower.includes(".m3u8")){
-        if(Hls.isSupported()){
-            const hls = new Hls({
+    if (lower.indexOf(".m3u8") > -1 || lower.indexOf(".m3u") > -1)
+    {
+        if (Hls.isSupported())
+        {
+            let hls = new Hls({
                 enableWorker:true,
                 lowLatencyMode:true
             });
@@ -148,42 +132,53 @@ if(!stream){
             hls.loadSource(stream);
             hls.attachMedia(video);
 
-            hls.on(Hls.Events.MANIFEST_PARSED, ()=>{
-                video.play().catch(()=>{});
-                setStatus("HLS reproduciendo");
+            hls.on(Hls.Events.MANIFEST_PARSED, function()
+            {
+                status("Reproduciendo HLS (Silenciado)");
+                video.play().catch(e => console.log(e));
             });
 
-            hls.on(Hls.Events.ERROR, (e,d)=>{
-                if(d.fatal){
-                    setStatus("Error HLS: " + d.type);
+            hls.on(Hls.Events.ERROR, function(event, data)
+            {
+                console.log(data);
+
+                if (data.fatal)
+                {
+                    status(
+                        "Error: " +
+                        data.type +
+                        " | " +
+                        data.details
+                    );
                 }
             });
-
-        } else {
+        }
+        else
+        {
             video.src = stream;
-            setStatus("HLS fallback nativo");
+            video.play().catch(e => console.log(e));
         }
     }
-
-    // --------------------
-    // DASH (.mpd)
-    // --------------------
-    else if(lower.includes(".mpd")){
-        const player = dashjs.MediaPlayer().create();
-        player.initialize(video, stream, true);
-        setStatus("DASH reproduciendo");
-    }
-
-    // --------------------
-    // fallback
-    // --------------------
-    else {
+    else
+    {
         video.src = stream;
 
-        video.onloadedmetadata = ()=>{
-            setStatus("Reproduciendo stream");
-            video.play().catch(()=>{});
-        };
+        video.addEventListener(
+            "loadedmetadata",
+            function()
+            {
+                status("Reproduciendo");
+                video.play().catch(e => console.log(e));
+            }
+        );
+
+        video.addEventListener(
+            "error",
+            function()
+            {
+                status("Formato no soportado");
+            }
+        );
     }
 }
 
