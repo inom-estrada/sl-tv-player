@@ -1,133 +1,189 @@
-string PLAYER_URL = "https://inom-estrada.github.io/sl-tv-player/index.html?url=";
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>SL TV Player</title>
 
-integer FACE = 0;
-integer MODO = 0; // 0 = WEB (Recomendado), 1 = SL DIRECTO
-
-list gNames;
-list gURLs;
-string gCard;
-integer gLine;
-key gQuery;
-key gUser;
-integer gListen;
-integer gDialogChannel;
-
-integer PAGE_SIZE = 6; 
-integer gPage = 0;
-
-loadCard(string card) {
-    gCard = card;
-    gNames = [];
-    gURLs = [];
-    gLine = 0;
-    gQuery = llGetNotecardLine(card, gLine);
+<style>
+html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background: #000;
+    overflow: hidden;
 }
 
-showPage() {
-    integer total = llGetListLength(gNames);
-    if(total == 0) { llRegionSayTo(gUser, 0, "No hay elementos en esta lista."); return; }
+#video {
+    width: 100%;
+    height: 100%;
+    background: #000;
+    /* PONLO EN 'true' SI QUIERES VER LOS CONTROLES DE LA WEB. 
+       Recomiendo dejarlo en 'false' para usar los controles nativos de Second Life */
+    controls: false; 
+}
+
+#status {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    color: white;
+    background: rgba(0, 0, 0, 0.7);
+    padding: 5px 10px;
+    font-family: Arial, sans-serif;
+    font-size: 13px;
+    border-radius: 4px;
+    z-index: 9999;
+    /* Animación para que desaparezca solo después de 4 segundos */
+    animation: fadeOut 4s forwards;
+    animation-delay: 4s;
+    opacity: 1;
+}
+
+@keyframes fadeOut {
+    0% { opacity: 1; }
+    100% { opacity: 0; pointer-events: none; }
+}
+
+/* Capa transparente que cubre la TV para capturar el clic de activación */
+#audio-unmute-overlay {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0, 0, 0, 0.80);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 10000;
+    cursor: pointer;
+}
+
+#unmute-text {
+    color: white;
+    font-size: 18px;
+    font-family: Arial, sans-serif;
+    font-weight: bold;
+    border: 2px solid white;
+    padding: 15px 30px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.1);
+    text-align: center;
+    text-shadow: 1px 1px 3px rgba(0,0,0,0.8);
+}
+</style>
+
+<!-- Cargamos la librería HLS.js -->
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+
+</head>
+
+<body>
+
+<!-- Texto de estado (desaparece solo) -->
+<div id="status">Iniciando...</div>
+
+<!-- Capa para activar el audio -->
+<div id="audio-unmute-overlay">
+    <div id="unmute-text">🔊 TOCAR PANTALLA PARA AUDIO</div>
+</div>
+
+<!-- Reproductor de video -->
+<video
+    id="video"
+    autoplay
+    muted
+    playsinline
+    webkit-playsinline>
+</video>
+
+<script>
+
+const statusBox = document.getElementById("status");
+const video = document.getElementById("video");
+const unmuteOverlay = document.getElementById("audio-unmute-overlay");
+
+function status(msg) {
+    console.log(msg);
+    statusBox.innerHTML = msg;
+}
+
+// Al hacer un clic en cualquier parte de la TV, se activa el sonido
+unmuteOverlay.addEventListener("click", function() {
+    video.muted = false;
+    video.volume = 1.0;
     
-    integer start = gPage * PAGE_SIZE;
-    integer end = start + PAGE_SIZE - 1;
-    list buttons = [];
-    integer i;
-
-    for(i = start; (i <= end) && (i < total); ++i) {
-        buttons += [llList2String(gNames, i)];
+    if (video.paused) {
+        video.play().catch(e => console.log("Error al reproducir:", e));
     }
+    
+    // Ocultamos la capa negra
+    unmuteOverlay.style.display = "none";
+    status("Audio activado");
+});
 
-    if(gPage > 0) buttons += ["<<"];
-    if(end < (total - 1)) buttons += [">>"];
-    buttons += ["MODO WEB", "MODO SL", "APAGAR", "Cerrar"];
+// Leemos la URL que manda el script de Second Life
+const params = new URLSearchParams(window.location.search);
+let stream = params.get("url");
 
-    if(gListen) llListenRemove(gListen);
-    gDialogChannel = -(100000 + (integer)llFrand(900000));
-    gListen = llListen(gDialogChannel, "", gUser, "");
+if (!stream) {
+    status("Sin URL");
+    // Si no hay URL, ocultamos todo y dejamos la TV negra
+    unmuteOverlay.style.display = "none";
+    statusBox.style.display = "none";
+} else {
+    // Decodificamos la URL por si viene con caracteres especiales
+    stream = decodeURIComponent(stream);
+    status("Conectando...");
 
-    string modoT;
-    if(MODO == 0) modoT = "WEB";
-    else modoT = "SL DIRECTO";
+    let lower = stream.toLowerCase();
 
-    string text = "Modo Actual: " + modoT + "\nCategoría: " + gCard + "\nPágina: " + (string)(gPage + 1);
-    llDialog(gUser, text, buttons, gDialogChannel);
-}
+    // Si es un video en partes (m3u8), usamos HLS.js
+    if (lower.indexOf(".m3u8") > -1 || lower.indexOf(".m3u") > -1) {
+        if (Hls.isSupported()) {
+            let hls = new Hls({
+                enableWorker: true,
+                lowLatencyMode: true
+            });
 
-playURL(string stream) {
-    string url;
-    if(MODO == 0) {
-        // AÑADIMOS &t= (hora unix) PARA EVITAR LA CACHÉ DE SECOND LIFE
-        url = PLAYER_URL + stream + "&t=" + (string)llGetUnixTime();
-    }
+            hls.loadSource(stream);
+            hls.attachMedia(video);
+
+            hls.on(Hls.Events.MANIFEST_PARSED, function() {
+                status("Reproduciendo HLS");
+                video.play().catch(e => console.log(e));
+            });
+
+            hls.on(Hls.Events.ERROR, function(event, data) {
+                console.error("Error HLS:", data);
+                if (data.fatal) {
+                    // Si da error fatal, lo mostramos en la TV
+                    statusBox.style.animation = 'none';
+                    statusBox.style.opacity = '1';
+                    status("Error de red: " + data.details);
+                }
+            });
+        } else {
+            // Si el navegador soporta m3u8 de forma nativa (raro en SL, pero por si acaso)
+            video.src = stream;
+            video.play().catch(e => console.log(e));
+        }
+    } 
+    // Si es un MP4 normal o enlace directo
     else {
-        url = stream;
-    }
+        video.src = stream;
 
-    // Debug (puedes borrar esta línea cuando todo te funcione)
-    llOwnerSay("Cargando: " + url);
+        video.addEventListener("loadedmetadata", function() {
+            status("Reproduciendo");
+            video.play().catch(e => console.log(e));
+        });
 
-    llClearPrimMedia(FACE);
-    
-    llSetPrimMediaParams(FACE, [
-        PRIM_MEDIA_CURRENT_URL, url, 
-        PRIM_MEDIA_HOME_URL, url, 
-        PRIM_MEDIA_AUTO_PLAY, TRUE,
-        PRIM_MEDIA_CONTROLS, PRIM_MEDIA_CONTROLS_STANDARD
-    ]);
-}
-
-default {
-    state_entry() {
-        llClearPrimMedia(FACE);
-    }
-
-    touch_start(integer total) {
-        integer link = llDetectedLinkNumber(0);
-        string primName = llToUpper(llStringTrim(llGetLinkName(link), STRING_TRIM));
-
-        if(primName == "ACTUALIZAR") {
-            llOwnerSay("Listas recargadas.");
-            return;
-        }
-
-        if(primName == "TV" || primName == "PELICULAS" || primName == "CONCIERTOS" || primName == "VIDEOS") {
-            if (llGetInventoryType(primName) != INVENTORY_NOTECARD) {
-                llOwnerSay("Error: Falta la notecard " + primName);
-                return;
-            }
-
-            gUser = llDetectedKey(0);
-            gPage = 0;
-            loadCard(primName);
-        }
-    }
-
-    dataserver(key id, string data) {
-        if(id != gQuery) return;
-        
-        if(data == EOF) { showPage(); return; }
-        data = llStringTrim(data, STRING_TRIM);
-        if(data != "") {
-            list parts = llParseStringKeepNulls(data, ["|"], []);
-            if(llGetListLength(parts) >= 2) {
-                gNames += [llList2String(parts, 0)];
-                gURLs += [llList2String(parts, 1)];
-            }
-        }
-        ++gLine;
-        gQuery = llGetNotecardLine(gCard, gLine);
-    }
-
-    listen(integer channel, string name, key id, string message) {
-        if(message == "Cerrar") return;
-        if(message == "MODO WEB") { MODO = 0; llOwnerSay("Modo WEB activado"); showPage(); return; }
-        if(message == "MODO SL") { MODO = 1; llOwnerSay("Modo SL activado"); showPage(); return; }
-        if(message == "APAGAR") { llClearPrimMedia(FACE); return; }
-        if(message == ">>") { ++gPage; showPage(); return; }
-        if(message == "<<") { --gPage; if(gPage < 0) gPage = 0; showPage(); return; }
-        
-        integer idx = llListFindList(gNames, [message]);
-        if(idx != -1) {
-            playURL(llList2String(gURLs, idx));
-        }
+        video.addEventListener("error", function() {
+            statusBox.style.animation = 'none';
+            statusBox.style.opacity = '1';
+            status("Error: Formato no soportado o enlace roto");
+        });
     }
 }
+
+</script>
+</body>
+</html>
