@@ -14,13 +14,16 @@ html, body {
     overflow: hidden;
 }
 
-#video {
+#video, #yt-placeholder {
     width: 100%;
     height: 100%;
     background: #000;
-    /* PONLO EN 'true' SI QUIERES VER LOS CONTROLES DE LA WEB. 
-       Recomiendo dejarlo en 'false' para usar los controles nativos de Second Life */
-    controls: false; 
+    border: none;
+}
+
+/* Ocultamos el contenedor de YouTube por defecto */
+#yt-placeholder {
+    display: none;
 }
 
 #status {
@@ -71,22 +74,18 @@ html, body {
 }
 </style>
 
-<!-- Cargamos la librería HLS.js -->
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 
 </head>
 
 <body>
 
-<!-- Texto de estado (desaparece solo) -->
 <div id="status">Iniciando...</div>
 
-<!-- Capa para activar el audio -->
 <div id="audio-unmute-overlay">
     <div id="unmute-text">🔊 TOCAR PANTALLA PARA AUDIO</div>
 </div>
 
-<!-- Reproductor de video -->
 <video
     id="video"
     autoplay
@@ -95,24 +94,60 @@ html, body {
     webkit-playsinline>
 </video>
 
+<div id="yt-placeholder"></div>
+
 <script>
 
 const statusBox = document.getElementById("status");
 const video = document.getElementById("video");
+const ytPlaceholder = document.getElementById("yt-placeholder");
 const unmuteOverlay = document.getElementById("audio-unmute-overlay");
+
+let isYouTube = false;
+let ytPlayer = null;
+let audioRequested = false; // Guarda la intención de activar audio si cargan lento
 
 function status(msg) {
     console.log(msg);
     statusBox.innerHTML = msg;
 }
 
+// Función para extraer el ID de video de cualquier formato de enlace de YouTube
+function getYouTubeId(url) {
+    let regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+    let match = url.match(regExp);
+    if (match && match[2].length === 11) {
+        return match[2];
+    }
+    // Soporte para transmisiones en vivo (/live/)
+    if (url.includes("/live/")) {
+        let parts = url.split("/live/");
+        if (parts[1]) return parts[1].split(/[?#&]/)[0];
+    }
+    // Soporte para Shorts (/shorts/)
+    if (url.includes("/shorts/")) {
+        let parts = url.split("/shorts/");
+        if (parts[1]) return parts[1].split(/[?#&]/)[0];
+    }
+    return null;
+}
+
 // Al hacer un clic en cualquier parte de la TV, se activa el sonido
 unmuteOverlay.addEventListener("click", function() {
-    video.muted = false;
-    video.volume = 1.0;
+    audioRequested = true; // El usuario ya dio permiso de audio
     
-    if (video.paused) {
-        video.play().catch(e => console.log("Error al reproducir:", e));
+    if (isYouTube) {
+        if (ytPlayer && typeof ytPlayer.unMute === "function") {
+            ytPlayer.unMute();
+            ytPlayer.setVolume(100);
+            ytPlayer.playVideo();
+        }
+    } else {
+        video.muted = false;
+        video.volume = 1.0;
+        if (video.paused) {
+            video.play().catch(e => console.log("Error al reproducir:", e));
+        }
     }
     
     // Ocultamos la capa negra
@@ -126,18 +161,71 @@ let stream = params.get("url");
 
 if (!stream) {
     status("Sin URL");
-    // Si no hay URL, ocultamos todo y dejamos la TV negra
     unmuteOverlay.style.display = "none";
     statusBox.style.display = "none";
 } else {
-    // Decodificamos la URL por si viene con caracteres especiales
     stream = decodeURIComponent(stream);
     status("Conectando...");
 
-    let lower = stream.toLowerCase();
+    let ytId = getYouTubeId(stream);
 
-    // Si es un video en partes (m3u8), usamos HLS.js
-    if (lower.indexOf(".m3u8") > -1 || lower.indexOf(".m3u") > -1) {
+    // ==========================================
+    // MODO DETECCIÓN: ¿ES UN ENLACE DE YOUTUBE?
+    // ==========================================
+    if (ytId) {
+        isYouTube = true;
+        status("Cargando YouTube...");
+        
+        // Ocultamos la etiqueta de video nativa y mostramos el bloque de YouTube
+        video.style.display = "none";
+        ytPlaceholder.style.display = "block";
+
+        // Callback global requerido por la API de YouTube
+        window.onYouTubeIframeAPIReady = function() {
+            ytPlayer = new YT.Player('yt-placeholder', {
+                height: '100%',
+                width: '100%',
+                videoId: ytId,
+                playerVars: {
+                    'autoplay': 1,
+                    'mute': 1,
+                    'controls': 0,          // Oculta controles nativos de YT
+                    'rel': 0,               // Evita videos recomendados de otros canales
+                    'modestbranding': 1,    // Quita el logo grande de YT de la barra
+                    'playsinline': 1,
+                    'iv_load_policy': 3     // Oculta anotaciones y notas en el video
+                },
+                events: {
+                    'onReady': function(event) {
+                        status("Reproduciendo YouTube");
+                        event.target.playVideo();
+                        
+                        // Si el usuario tocó la pantalla antes de que cargara la API, forzar audio inmediato
+                        if (audioRequested) {
+                            event.target.unMute();
+                            event.target.setVolume(100);
+                        }
+                    },
+                    'onError': function(event) {
+                        statusBox.style.animation = 'none';
+                        statusBox.style.opacity = '1';
+                        status("Error: YouTube bloqueó la reproducción externa");
+                    }
+                }
+            });
+        };
+
+        // Inyectamos dinámicamente el script de la API de Iframe de YouTube
+        let tag = document.createElement('script');
+        tag.src = "https://www.youtube.com/iframe_api";
+        let firstScriptTag = document.getElementsByTagName('script')[0];
+        firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+
+    } 
+    // ==========================================
+    // MODO TRADICIONAL: TRANSMISIONES HLS (.M3U8)
+    // ==========================================
+    else if (stream.toLowerCase().indexOf(".m3u8") > -1 || stream.toLowerCase().indexOf(".m3u") > -1) {
         if (Hls.isSupported()) {
             let hls = new Hls({
                 enableWorker: true,
@@ -155,19 +243,19 @@ if (!stream) {
             hls.on(Hls.Events.ERROR, function(event, data) {
                 console.error("Error HLS:", data);
                 if (data.fatal) {
-                    // Si da error fatal, lo mostramos en la TV
                     statusBox.style.animation = 'none';
                     statusBox.style.opacity = '1';
                     status("Error de red: " + data.details);
                 }
             });
         } else {
-            // Si el navegador soporta m3u8 de forma nativa (raro en SL, pero por si acaso)
             video.src = stream;
             video.play().catch(e => console.log(e));
         }
     } 
-    // Si es un MP4 normal o enlace directo
+    // ==========================================
+    // MODO TRADICIONAL: ENLACES ARCHIVOS DIRECTOS (.MP4)
+    // ==========================================
     else {
         video.src = stream;
 
