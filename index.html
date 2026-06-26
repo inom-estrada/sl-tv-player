@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Instinto E - Súper TV Multi-Formato Premium</title>
     <style>
-        /* Reseteo total para que ocupe el 100% de la cara del prim en SL sin bordes negros ni barras */
         body, html {
             margin: 0;
             padding: 0;
@@ -13,10 +12,7 @@
             height: 100%;
             overflow: hidden;
             background-color: #000;
-            font-family: Arial, sans-serif;
         }
-
-        /* Estilos idénticos para que ambos reproductores encajen perfectamente a pantalla completa */
         .reproductor {
             width: 100%;
             height: 100%;
@@ -30,65 +26,71 @@
 </head>
 <body>
 
+    <!-- REPRODUCTOR A: YouTube -->
     <iframe id="reproductor-yt" class="reproductor" style="display:none;" allow="autoplay; encrypted-media" allowfullscreen></iframe>
 
+    <!-- REPRODUCTOR B: MP4 / M3U8 -->
     <video id="reproductor-directo" class="reproductor" style="display:none;" controls autoplay playsinline></video>
 
     <script>
-        // 1. Capturamos el parámetro "url" que le mandes desde Second Life
         const urlParams = new URLSearchParams(window.location.search);
         const urlVideo = urlParams.get('url');
         
         const iframeYT = document.getElementById('reproductor-yt');
         const videoDirecto = document.getElementById('reproductor-directo');
 
-        // 2. Filtro inteligente de formatos
+        // FUNCIÓN MAESTRA: Saca el ID de YouTube sin importar cómo venga en la notecard
+        function extraerID(url) {
+            if (!url) return null;
+            if (url.length === 11) return url; // Ya es un ID limpio
+            
+            // RegEx para limpiar enlaces largos, cortos (youtu.be) o compartidos
+            const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+            const match = url.match(regExp);
+            return (match && match[2].length === 11) ? match[2] : null;
+        }
+
         if (urlVideo) {
+            const esYouTube = urlVideo.includes('youtube.com') || urlVideo.includes('youtu.be') || urlVideo.length === 11;
             const esEnlaceDirecto = urlVideo.includes('.mp4') || urlVideo.includes('.m3u8') || urlVideo.includes('dropbox.com');
 
-            if (esEnlaceDirecto) {
-                // --- MODO MP4 / M3U8 (Tus configuraciones previas intactas) ---
+            // 1. SI ES MP4 O M3U8
+            if (esEnlaceDirecto && !esYouTube) {
                 videoDirecto.style.display = "block";
-                
-                // Si es un flujo HLS (.m3u8), iniciamos el motor de la librería externa
                 if (urlVideo.includes('.m3u8') && Hls.isSupported()) {
                     var hls = new Hls();
                     hls.loadSource(urlVideo);
                     hls.attachMedia(videoDirecto);
                 } else {
-                    // Si es un .mp4 directo (de Dropbox o servidor propio) lo inyectamos de forma nativa
                     videoDirecto.src = urlVideo;
                 }
-            } else {
-                // --- MODO YOUTUBE (El Hack de automatización) ---
-                iframeYT.style.display = "block";
+            } 
+            // 2. SI ES YOUTUBE (Largo, corto o ID solo)
+            else if (esYouTube) {
+                const idLimpio = extraerID(urlVideo);
                 
-                // Configuramos los parámetros oficiales de YouTube para reproducción fluida, limpia y con API activa
-                iframeYT.src = `https://www.youtube.com/embed/${urlVideo}?autoplay=1&enablejsapi=1&rel=0&modestbranding=1&iv_load_policy=3`;
-                
-                // Encendemos el guardián anti-anuncios en segundo plano
-                activarGuardianAnuncios(iframeYT);
+                if (idLimpio) {
+                    iframeYT.style.display = "block";
+                    iframeYT.src = `https://www.youtube.com/embed/${idLimpio}?autoplay=1&enablejsapi=1&rel=0&modestbranding=1&iv_load_policy=3`;
+                    activarGuardianAnuncios(iframeYT);
+                } else {
+                    console.log("No se pudo extraer un ID válido de YouTube.");
+                }
             }
         }
 
-        // 3. El Motor del Modo Automático (Cero Anuncios)
+        // El guardián automático para saltar comerciales
         function activarGuardianAnuncios(iframe) {
-            // Revisa el código del reproductor de YouTube dos veces por segundo (cada 500ms)
             setInterval(function() {
                 try {
-                    // Localiza las clases CSS nativas que usa Google para el botón "Saltar anuncio" (clásico y moderno)
                     var botonSaltar = iframe.contentWindow.document.querySelector('.ytp-ad-skip-button') || 
                                       iframe.contentWindow.document.querySelector('.ytp-ad-skip-button-modern') ||
                                       iframe.contentWindow.document.querySelector('.ytp-skip-ad-button');
                     
-                    // Si el botón aparece en el navegador CEF de SL, le da clic virtual al instante
                     if (botonSaltar) {
-                        console.log("¡Anuncio detectado en YouTube! Saltando automáticamente...");
                         botonSaltar.click();
                     }
-                } catch (e) {
-                    // Manejo silencioso de errores por políticas de seguridad entre dominios (Cross-Origin)
-                }
+                } catch (e) {}
             }, 500);
         }
     </script>
