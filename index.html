@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Instinto E - Súper TV Multi-Formato Premium</title>
+    <title>Instinto E - Súper TV Estable</title>
     <style>
         body, html {
             margin: 0;
@@ -26,10 +26,10 @@
 </head>
 <body>
 
-    <!-- REPRODUCTOR A: YouTube -->
+    <!-- REPRODUCTOR A: YouTube (Limpio y sin scripts invasivos para evitar bloqueos) -->
     <iframe id="reproductor-yt" class="reproductor" style="display:none;" allow="autoplay; encrypted-media" allowfullscreen></iframe>
 
-    <!-- REPRODUCTOR B: MP4 / M3U8 -->
+    <!-- REPRODUCTOR B: Tu streaming nativo MP4 / M3U8 -->
     <video id="reproductor-directo" class="reproductor" style="display:none;" controls autoplay playsinline></video>
 
     <script>
@@ -39,12 +39,9 @@
         const iframeYT = document.getElementById('reproductor-yt');
         const videoDirecto = document.getElementById('reproductor-directo');
 
-        // FUNCIÓN MAESTRA: Saca el ID de YouTube sin importar cómo venga en la notecard
         function extraerID(url) {
             if (!url) return null;
-            if (url.length === 11) return url; // Ya es un ID limpio
-            
-            // RegEx para limpiar enlaces largos, cortos (youtu.be) o compartidos
+            if (url.length === 11) return url;
             const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
             const match = url.match(regExp);
             return (match && match[2].length === 11) ? match[2] : null;
@@ -54,7 +51,7 @@
             const esYouTube = urlVideo.includes('youtube.com') || urlVideo.includes('youtu.be') || urlVideo.length === 11;
             const esEnlaceDirecto = urlVideo.includes('.mp4') || urlVideo.includes('.m3u8') || urlVideo.includes('dropbox.com');
 
-            // 1. SI ES MP4 O M3U8
+            // 1. FORMATOS DIRECTOS (Dropbox, IPTV)
             if (esEnlaceDirecto && !esYouTube) {
                 videoDirecto.style.display = "block";
                 if (urlVideo.includes('.m3u8') && Hls.isSupported()) {
@@ -65,33 +62,15 @@
                     videoDirecto.src = urlVideo;
                 }
             } 
-            // 2. SI ES YOUTUBE (Largo, corto o ID solo)
+            // 2. YOUTUBE (Carga estándar 100% compatible y segura)
             else if (esYouTube) {
                 const idLimpio = extraerID(urlVideo);
-                
                 if (idLimpio) {
                     iframeYT.style.display = "block";
-                    iframeYT.src = `https://www.youtube.com/embed/${idLimpio}?autoplay=1&enablejsapi=1&rel=0&modestbranding=1&iv_load_policy=3`;
-                    activarGuardianAnuncios(iframeYT);
-                } else {
-                    console.log("No se pudo extraer un ID válido de YouTube.");
+                    // Cargamos el embed base sin parámetros agresivos que alerten a Google
+                    iframeYT.src = `https://www.youtube.com/embed/${idLimpio}?autoplay=1&rel=0`;
                 }
             }
-        }
-
-        // El guardián automático para saltar comerciales
-        function activarGuardianAnuncios(iframe) {
-            setInterval(function() {
-                try {
-                    var botonSaltar = iframe.contentWindow.document.querySelector('.ytp-ad-skip-button') || 
-                                      iframe.contentWindow.document.querySelector('.ytp-ad-skip-button-modern') ||
-                                      iframe.contentWindow.document.querySelector('.ytp-skip-ad-button');
-                    
-                    if (botonSaltar) {
-                        botonSaltar.click();
-                    }
-                } catch (e) {}
-            }, 500);
         }
     </script>
 </body>
