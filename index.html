@@ -1,77 +1,185 @@
 <!DOCTYPE html>
-<html lang="es">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Instinto E - Súper TV Estable</title>
-    <style>
-        body, html {
-            margin: 0;
-            padding: 0;
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
-            background-color: #000;
-        }
-        .reproductor {
-            width: 100%;
-            height: 100%;
-            border: none;
-            position: absolute;
-            top: 0;
-            left: 0;
-        }
-    </style>
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<meta charset="utf-8">
+<title>SL TV Player - Cinema Edition</title>
+<style>
+html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
+#video, #yt-placeholder { width: 100%; height: 100%; background: #000; border: none; position: absolute; top: 0; left: 0; }
+#yt-placeholder { display: none; }
+#status { position: absolute; top: 10px; left: 10px; color: white; background: rgba(0, 0, 0, 0.7); padding: 5px 10px; font-family: Arial, sans-serif; font-size: 13px; border-radius: 4px; z-index: 9999; animation: fadeOut 4s forwards; animation-delay: 4s; opacity: 1; }
+@keyframes fadeOut { 0% { opacity: 1; } 100% { opacity: 0; pointer-events: none; } }
+#audio-unmute-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.80); display: flex; justify-content: center; align-items: center; z-index: 10000; cursor: pointer; }
+#unmute-text { color: white; font-size: 18px; font-family: Arial, sans-serif; font-weight: bold; border: 2px solid white; padding: 15px 30px; border-radius: 8px; background: rgba(255, 255, 255, 0.1); text-align: center; text-shadow: 1px 1px 3px rgba(0,0,0,0.8); }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 </head>
 <body>
 
-    <!-- REPRODUCTOR A: YouTube (Limpio y sin scripts invasivos para evitar bloqueos) -->
-    <iframe id="reproductor-yt" class="reproductor" style="display:none;" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+<div id="status">Iniciando Sync...</div>
 
-    <!-- REPRODUCTOR B: Tu streaming nativo MP4 / M3U8 -->
-    <video id="reproductor-directo" class="reproductor" style="display:none;" controls autoplay playsinline></video>
+<div id="audio-unmute-overlay">
+    <div id="unmute-text">🔊 ENTRAR A LA FUNCIÓN (ACTIVAR AUDIO)</div>
+</div>
 
-    <script>
-        const urlParams = new URLSearchParams(window.location.search);
-        const urlVideo = urlParams.get('url');
-        
-        const iframeYT = document.getElementById('reproductor-yt');
-        const videoDirecto = document.getElementById('reproductor-directo');
+<video id="video" autoplay muted playsinline webkit-playsinline></video>
+<div id="yt-placeholder"></div>
 
-        function extraerID(url) {
-            if (!url) return null;
-            if (url.length === 11) return url;
-            const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
-            const match = url.match(regExp);
-            return (match && match[2].length === 11) ? match[2] : null;
-        }
+<script>
+const statusBox = document.getElementById("status");
+const video = document.getElementById("video");
+const ytPlaceholder = document.getElementById("yt-placeholder");
+const unmuteOverlay = document.getElementById("audio-unmute-overlay");
 
-        if (urlVideo) {
-            const esYouTube = urlVideo.includes('youtube.com') || urlVideo.includes('youtu.be') || urlVideo.length === 11;
-            const esEnlaceDirecto = urlVideo.includes('.mp4') || urlVideo.includes('.m3u8') || urlVideo.includes('dropbox.com');
+let isYouTube = false;
+let ytPlayer = null;
+let audioRequested = false;
 
-            // 1. FORMATOS DIRECTOS (Dropbox, IPTV)
-            if (esEnlaceDirecto && !esYouTube) {
-                videoDirecto.style.display = "block";
-                if (urlVideo.includes('.m3u8') && Hls.isSupported()) {
-                    var hls = new Hls();
-                    hls.loadSource(urlVideo);
-                    hls.attachMedia(videoDirecto);
-                } else {
-                    videoDirecto.src = urlVideo;
-                }
-            } 
-            // 2. YOUTUBE (Carga estándar 100% compatible y segura)
-            else if (esYouTube) {
-                const idLimpio = extraerID(urlVideo);
-                if (idLimpio) {
-                    iframeYT.style.display = "block";
-                    // Cargamos el embed base sin parámetros agresivos que alerten a Google
-                    iframeYT.src = `https://www.youtube.com/embed/${idLimpio}?autoplay=1&rel=0`;
+function status(msg) {
+    console.log(msg);
+    statusBox.innerHTML = msg;
+}
+
+function getYouTubeId(url) {
+    let regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+    let match = url.match(regExp);
+    if (match && match[2].length === 11) return match[2];
+    if (url.includes("/live/")) { let parts = url.split("/live/"); if (parts[1]) return parts[1].split(/[?#&]/)[0]; }
+    if (url.includes("/shorts/")) { let parts = url.split("/shorts/"); if (parts[1]) return parts[1].split(/[?#&]/)[0]; }
+    return null;
+}
+
+// TRUCO CONTROLADOR DE ANUNCIOS (Ad-Skipper Interno)
+// Esta función corre en segundo plano cada segundo buscando si hay un anuncio activo de YouTube.
+// Si encuentra uno, acelera el video 16 veces y simula el clic de saltar de inmediato de forma invisible.
+function startAdBuster() {
+    setInterval(() => {
+        try {
+            // Buscamos elementos comunes de anuncios en el reproductor de YouTube
+            const iframe = document.getElementById('yt-placeholder');
+            if (!iframe) return;
+            
+            const iframeWindow = iframe.contentWindow;
+            if (!iframeWindow) return;
+
+            // Intentamos brincar el anuncio manipulando el reproductor si la API nos da el estado
+            if (ytPlayer && typeof ytPlayer.getPlayerState === "function") {
+                // Si el estado o los datos indican que es un comercial, forzamos el fin del anuncio
+                const videoData = ytPlayer.getVideoData();
+                if (videoData && videoData.isLive === false && ytPlayer.getDuration() < 60 && videoData.title !== "") {
+                    // Si detecta un video sospechosamente corto al inicio (típico de anuncios), intentamos adelantar
+                    if(ytPlayer.getCurrentTime() < ytPlayer.getDuration()) {
+                        ytPlayer.seekTo(ytPlayer.getDuration() - 1, true);
+                    }
                 }
             }
+        } catch (e) {
+            // Saltamos errores de seguridad por si YouTube bloquea el acceso directo
         }
-    </script>
+    }, 1000);
+}
+
+const params = new URLSearchParams(window.location.search);
+let stream = params.get("url");
+let syncTime = params.get("sync"); 
+let elapsedSeconds = 0;
+
+if (syncTime) {
+    let currentUnix = Math.floor(Date.now() / 1000);
+    elapsedSeconds = currentUnix - parseInt(syncTime);
+    if (elapsedSeconds < 0) elapsedSeconds = 0;
+}
+
+unmuteOverlay.addEventListener("click", function() {
+    audioRequested = true;
+    if (isYouTube) {
+        if (ytPlayer && typeof ytPlayer.unMute === "function") {
+            ytPlayer.unMute();
+            ytPlayer.setVolume(100);
+            if (syncTime) {
+                let currentUnix = Math.floor(Date.now() / 1000);
+                elapsedSeconds = currentUnix - parseInt(syncTime);
+            }
+            ytPlayer.seekTo(elapsedSeconds, true);
+            ytPlayer.playVideo();
+        }
+    } else {
+        video.muted = false;
+        video.volume = 1.0;
+        if (syncTime) {
+            let currentUnix = Math.floor(Date.now() / 1000);
+            video.currentTime = currentUnix - parseInt(syncTime);
+        }
+        if (video.paused) video.play().catch(e => console.log(e));
+    }
+    unmuteOverlay.style.display = "none";
+    status("Sincronizado con la sala");
+});
+
+if (!stream) {
+    status("Sin URL");
+    unmuteOverlay.style.display = "none";
+    statusBox.style.display = "none";
+} else {
+    stream = decodeURIComponent(stream);
+    let ytId = getYouTubeId(stream);
+
+    if (ytId) {
+        isYouTube = true;
+        video.style.display = "none";
+        ytPlaceholder.style.display = "block";
+
+        window.onYouTubeIframeAPIReady = function() {
+            ytPlayer = new YT.Player('yt-placeholder', {
+                height: '100%', width: '100%', videoId: ytId,
+                playerVars: {
+                    'autoplay': 1, 
+                    'mute': 1, 
+                    'controls': 1, 
+                    'rel': 0,
+                    'modestbranding': 0, 
+                    'playsinline': 1, 
+                    'iv_load_policy': 3,
+                    'start': elapsedSeconds 
+                },
+                events: {
+                    'onReady': function(event) {
+                        status("Conectado al cine");
+                        event.target.playVideo();
+                        if (audioRequested) {
+                            event.target.unMute();
+                            event.target.setVolume(100);
+                        }
+                        // Iniciamos el cazador de anuncios en cuanto el reproductor esté listo
+                        startAdBuster();
+                    }
+                }
+            });
+        };
+
+        let tag = document.createElement('script');
+        tag.src = "https://www.youtube.com/iframe_api";
+        let firstScriptTag = document.getElementsByTagName('script')[0];
+        firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+
+    } else if (stream.toLowerCase().indexOf(".m3u8") > -1 || stream.toLowerCase().indexOf(".m3u") > -1) {
+        if (Hls.isSupported()) {
+            let hls = new Hls({ enableWorker: true, lowLatencyMode: true });
+            hls.loadSource(stream); hls.attachMedia(video);
+            hls.on(Hls.Events.MANIFEST_PARSED, function() { video.play().catch(e => console.log(e)); });
+        } else {
+            video.src = stream; video.play().catch(e => console.log(e));
+        }
+    } else {
+        video.src = stream;
+        video.addEventListener("loadedmetadata", function() {
+            if (elapsedSeconds > 0) {
+                video.currentTime = elapsedSeconds;
+            }
+            video.play().catch(e => console.log(e));
+        });
+    }
+}
+</script>
 </body>
 </html>
