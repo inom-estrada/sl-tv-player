@@ -5,9 +5,21 @@
 <title>SL TV Player - Cinema Edition</title>
 <style>
 html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
-/* MODIFICACIÓN: Aseguramos un contenedor rígido para que YouTube no se desborde en el visor de SL */
-#video, #yt-placeholder { width: 100%; height: 100%; background: #000; border: none; position: absolute; top: 0; left: 0; }
-#yt-placeholder { display: none; }
+#video { width: 100%; height: 100%; background: #000; border: none; position: absolute; top: 0; left: 0; }
+
+/* MODIFICACIÓN CLAVE: Encojemos el contenedor de YouTube a un 85% de la pantalla y lo centramos */
+/* Esto va a obligar a que el reproductor de YouTube tenga márgenes negros y el botón de saltar entre a la zona visible */
+#yt-placeholder { 
+    width: 86% !important; 
+    height: 86% !important; 
+    position: absolute !important; 
+    top: 7% !important; 
+    left: 7% !important; 
+    display: none; 
+    border: none;
+    box-shadow: 0 0 20px rgba(0,0,0,1);
+}
+
 #status { position: absolute; top: 10px; left: 10px; color: white; background: rgba(0, 0, 0, 0.7); padding: 5px 10px; font-family: Arial, sans-serif; font-size: 13px; border-radius: 4px; z-index: 9999; animation: fadeOut 4s forwards; animation-delay: 4s; opacity: 1; }
 @keyframes fadeOut { 0% { opacity: 1; } 100% { opacity: 0; pointer-events: none; } }
 #audio-unmute-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.80); display: flex; justify-content: center; align-items: center; z-index: 10000; cursor: pointer; }
@@ -117,15 +129,6 @@ if (!stream) {
                     'onReady': function(event) {
                         status("Conectado al cine");
                         event.target.playVideo();
-                        
-                        // TRUCO PARA SL: Forzamos estilos al iframe interno de YouTube para que no se desborde
-                        const iframe = document.getElementById('yt-placeholder');
-                        if(iframe) {
-                            iframe.style.width = "100%";
-                            iframe.style.height = "100%";
-                            iframe.style.position = "absolute";
-                        }
-
                         if (audioRequested) {
                             event.target.unMute();
                             event.target.setVolume(100);
