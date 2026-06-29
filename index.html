@@ -7,10 +7,11 @@
 html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
 #video, #yt-placeholder { width: 100%; height: 100%; background: #000; border: none; position: absolute; top: 0; left: 0; }
 #yt-placeholder { display: none; }
-#status { position: absolute; top: 10px; left: 10px; color: white; background: rgba(0, 0, 0, 0.7); padding: 5px 10px; font-family: Arial, sans-serif; font-size: 13px; border-radius: 4px; z-index: 9999; animation: fadeOut 4s forwards; animation-delay: 4s; opacity: 1; }
-@keyframes fadeOut { 0% { opacity: 1; } 100% { opacity: 0; pointer-events: none; } }
+#status { position: absolute; top: 10px; left: 10px; color: white; background: rgba(0, 0, 0, 0.7); padding: 5px 10px; font-family: Arial, sans-serif; font-size: 13px; border-radius: 4px; z-index: 9999; animation: fadeOut 4s forwards; animation-delay: 4s; opacity: 1; pointer-events: none; }
+@keyframes fadeOut { 0% { opacity: 1; } 100% { opacity: 0; display: none; } }
 #audio-unmute-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.80); display: flex; justify-content: center; align-items: center; z-index: 10000; cursor: pointer; }
-#unmute-text { color: white; font-size: 18px; font-family: Arial, sans-serif; font-weight: bold; border: 2px solid white; padding: 15px 30px; border-radius: 8px; background: rgba(255, 255, 255, 0.1); text-align: center; text-shadow: 1px 1px 3px rgba(0,0,0,0.8); }
+#unmute-text { color: white; font-size: 18px; font-family: Arial, sans-serif; font-weight: bold; border: 2px solid white; padding: 15px 30px; border-radius: 8px; background: rgba(255, 255, 255, 0.1); text-align: center; text-shadow: 1px 1px 3px rgba(0,0,0,0.8); transition: transform 0.2s; }
+#unmute-text:hover { transform: scale(1.05); background: rgba(255, 255, 255, 0.2); }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 </head>
@@ -32,11 +33,16 @@ const ytPlaceholder = document.getElementById("yt-placeholder");
 const unmuteOverlay = document.getElementById("audio-unmute-overlay");
 
 let isYouTube = false;
+let isHLS = false; // <-- Nuevo: Para saber si es TV en vivo
 let ytPlayer = null;
 let audioRequested = false;
+let ytReady = false;
 
 function status(msg) {
     console.log(msg);
+    statusBox.style.animation = 'none';
+    statusBox.offsetHeight; /* trigger reflow */
+    statusBox.style.animation = null; 
     statusBox.innerHTML = msg;
 }
 
@@ -49,71 +55,82 @@ function getYouTubeId(url) {
     return null;
 }
 
-// TRUCO CONTROLADOR DE ANUNCIOS (Ad-Skipper Interno)
-// Esta función corre en segundo plano cada segundo buscando si hay un anuncio activo de YouTube.
-// Si encuentra uno, acelera el video 16 veces y simula el clic de saltar de inmediato de forma invisible.
 function startAdBuster() {
     setInterval(() => {
         try {
-            // Buscamos elementos comunes de anuncios en el reproductor de YouTube
-            const iframe = document.getElementById('yt-placeholder');
-            if (!iframe) return;
-            
-            const iframeWindow = iframe.contentWindow;
-            if (!iframeWindow) return;
-
-            // Intentamos brincar el anuncio manipulando el reproductor si la API nos da el estado
-            if (ytPlayer && typeof ytPlayer.getPlayerState === "function") {
-                // Si el estado o los datos indican que es un comercial, forzamos el fin del anuncio
+            if (ytPlayer && ytReady && typeof ytPlayer.getPlayerState === "function") {
                 const videoData = ytPlayer.getVideoData();
                 if (videoData && videoData.isLive === false && ytPlayer.getDuration() < 60 && videoData.title !== "") {
-                    // Si detecta un video sospechosamente corto al inicio (típico de anuncios), intentamos adelantar
                     if(ytPlayer.getCurrentTime() < ytPlayer.getDuration()) {
                         ytPlayer.seekTo(ytPlayer.getDuration() - 1, true);
                     }
                 }
             }
-        } catch (e) {
-            // Saltamos errores de seguridad por si YouTube bloquea el acceso directo
-        }
+        } catch (e) {}
     }, 1000);
+}
+
+// Lógica para calcular los segundos exactos basado en el LSL
+function getSyncSeconds() {
+    if (!syncTime) return 0;
+    let currentUnix = Math.floor(Date.now() / 1000);
+    let seconds = currentUnix - parseInt(syncTime);
+    return seconds > 0 ? seconds : 0;
 }
 
 const params = new URLSearchParams(window.location.search);
 let stream = params.get("url");
 let syncTime = params.get("sync"); 
-let elapsedSeconds = 0;
 
-if (syncTime) {
-    let currentUnix = Math.floor(Date.now() / 1000);
-    elapsedSeconds = currentUnix - parseInt(syncTime);
-    if (elapsedSeconds < 0) elapsedSeconds = 0;
-}
-
+// Evento principal para entrar a la sala
 unmuteOverlay.addEventListener("click", function() {
     audioRequested = true;
+    unmuteOverlay.style.display = "none";
+    
     if (isYouTube) {
-        if (ytPlayer && typeof ytPlayer.unMute === "function") {
+        if (ytReady && ytPlayer && typeof ytPlayer.unMute === "function") {
             ytPlayer.unMute();
             ytPlayer.setVolume(100);
-            if (syncTime) {
-                let currentUnix = Math.floor(Date.now() / 1000);
-                elapsedSeconds = currentUnix - parseInt(syncTime);
+            
+            // Solo adelantar si NO es un en vivo de YouTube
+            let vData = ytPlayer.getVideoData();
+            if (syncTime && (!vData || vData.isLive === false)) {
+                ytPlayer.seekTo(getSyncSeconds(), true);
             }
-            ytPlayer.seekTo(elapsedSeconds, true);
             ytPlayer.playVideo();
         }
     } else {
         video.muted = false;
         video.volume = 1.0;
-        if (syncTime) {
-            let currentUnix = Math.floor(Date.now() / 1000);
-            video.currentTime = currentUnix - parseInt(syncTime);
+        
+        // Solo adelantar si NO es un canal de TV en vivo (HLS/m3u8)
+        if (syncTime && !isHLS) {
+            video.currentTime = getSyncSeconds();
         }
-        if (video.paused) video.play().catch(e => console.log(e));
+        
+        if (video.paused) {
+            let playPromise = video.play();
+            if (playPromise !== undefined) {
+                playPromise.catch(e => console.log("Auto-play bloqueado:", e));
+            }
+        }
     }
-    unmuteOverlay.style.display = "none";
     status("Sincronizado con la sala");
+});
+
+// NUEVO: Doble clic en la pantalla para forzar re-sincronización si hay lag
+document.body.addEventListener("dblclick", function() {
+    if(!syncTime) return;
+    status("Re-sincronizando...");
+    
+    if (isYouTube && ytReady && ytPlayer) {
+        let vData = ytPlayer.getVideoData();
+        if (!vData || vData.isLive === false) {
+            ytPlayer.seekTo(getSyncSeconds(), true);
+        }
+    } else if (!isYouTube && !isHLS) {
+        video.currentTime = getSyncSeconds();
+    }
 });
 
 if (!stream) {
@@ -137,21 +154,34 @@ if (!stream) {
                     'mute': 1, 
                     'controls': 1, 
                     'rel': 0,
-                    'modestbranding': 0, 
+                    'modestbranding': 1, 
                     'playsinline': 1, 
-                    'iv_load_policy': 3,
-                    'start': elapsedSeconds 
+                    'iv_load_policy': 3
                 },
                 events: {
                     'onReady': function(event) {
-                        status("Conectado al cine");
-                        event.target.playVideo();
+                        ytReady = true;
+                        
+                        // Si el usuario ya había hecho clic antes de que YouTube cargara
                         if (audioRequested) {
                             event.target.unMute();
                             event.target.setVolume(100);
+                            
+                            let vData = event.target.getVideoData();
+                            if (syncTime && (!vData || vData.isLive === false)) {
+                                event.target.seekTo(getSyncSeconds(), true);
+                            }
+                        } else {
+                            // Carga inicial silenciosa (Muted)
+                            let vData = event.target.getVideoData();
+                            if (syncTime && (!vData || vData.isLive === false)) {
+                                event.target.seekTo(getSyncSeconds(), true);
+                            }
                         }
-                        // Iniciamos el cazador de anuncios en cuanto el reproductor esté listo
+                        
+                        event.target.playVideo();
                         startAdBuster();
+                        status("Conectado (YouTube)");
                     }
                 }
             });
@@ -163,20 +193,31 @@ if (!stream) {
         firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
 
     } else if (stream.toLowerCase().indexOf(".m3u8") > -1 || stream.toLowerCase().indexOf(".m3u") > -1) {
+        isHLS = true; // Es TV en vivo, no debemos alterar su tiempo
         if (Hls.isSupported()) {
             let hls = new Hls({ enableWorker: true, lowLatencyMode: true });
-            hls.loadSource(stream); hls.attachMedia(video);
-            hls.on(Hls.Events.MANIFEST_PARSED, function() { video.play().catch(e => console.log(e)); });
+            hls.loadSource(stream); 
+            hls.attachMedia(video);
+            hls.on(Hls.Events.MANIFEST_PARSED, function() { 
+                let playPromise = video.play();
+                if(playPromise !== undefined) playPromise.catch(e => console.log(e));
+                status("Conectado (TV en vivo)");
+            });
         } else {
-            video.src = stream; video.play().catch(e => console.log(e));
+            video.src = stream; 
+            video.play().catch(e => console.log(e));
         }
     } else {
+        // Formatos directos (MP4, MKV web, etc.)
         video.src = stream;
         video.addEventListener("loadedmetadata", function() {
-            if (elapsedSeconds > 0) {
-                video.currentTime = elapsedSeconds;
+            if (syncTime && !audioRequested) {
+                // Posicionar calladamente en el fondo
+                video.currentTime = getSyncSeconds();
             }
-            video.play().catch(e => console.log(e));
+            let playPromise = video.play();
+            if(playPromise !== undefined) playPromise.catch(e => console.log(e));
+            status("Conectado (Cine)");
         });
     }
 }
